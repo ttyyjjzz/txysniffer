@@ -27,7 +27,20 @@ public:
 	char fileName[1024];//文件名称
 	pcap_dumper_t *dumpFile;//存储网络数据的文件描述符
 
+	int txysniffer_updatePacket();//更新数据包
+	int txysniffer_updateList(struct pcap_pkthdr *data_header, struct data_packet *data, const u_char *pkt_data);//更新列表
+
 	HANDLE m_ThreadHandle;//接收数据线程
+	struct packet_count packetCount;//各类包计数器
+	CPtrList m_localDataList;//保存本地化的数据包
+	CPtrList m_netDataList;//保存网络中获取的数据包
+	int packetNum;//包统计
+
+	int txysniffer_saveFile();//保存文件
+	int txysniffer_readFile(CString path);//读取文件
+	void print_packet_hex(const u_char* packet, int packet_size, CString *bufffer);//编辑框数据格式化显示
+	int txysniffer_updateEdit(int index);//更新编辑框
+	int txysniffer_updateTree(int index);//更新树形框
 
 
 // 对话框数据
@@ -73,4 +86,6 @@ public:
 	afx_msg void OnBnClickedButton2();
 	afx_msg void OnBnClickedButton3();
 	afx_msg void OnBnClickedButton4();
+	afx_msg void OnLvnItemchangedList1(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMCustomdrawList1(NMHDR *pNMHDR, LRESULT *pResult);
 };
