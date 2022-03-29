@@ -1,4 +1,4 @@
-
+#pragma warning(disable:4996)
 // txysnifferDlg.h : м╥нд╪Ч
 //
 

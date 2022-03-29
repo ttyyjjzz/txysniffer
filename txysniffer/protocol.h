@@ -135,7 +135,8 @@ struct icmpv6_header {
 };
 
 //¼ÆÊı
-struct packet_count {
+typedef struct packet_count
+{
 	int num_arp;//ARP
 	int num_ip4;//IPv4
 	int num_ip6;//IPv6

@@ -294,7 +294,7 @@ int CtxysnifferDlg::txysniffer_startCap()
 		int len;
 		char *filter;
 		this->m_rulefilterComboBox.GetLBText(filterIndex, str);
-		len = str.GetLength + 1;
+		len = str.GetLength() + 1;
 		for (int i = 0; i < len; i++)
 			filter[i] = str.GetAt(i);
 		if (pcap_compile(dpHandle, &fcode, filter, 1, netmask) < 0)
@@ -313,32 +313,7 @@ int CtxysnifferDlg::txysniffer_startCap()
 		return -1;
 	}
 
-	//(7)数据包存储路径
-	CFileFind file;
-	struct tm *ltime;
-	time_t stime;
-	char thistime[30];
-	
-	time(&stime);
-	ltime = localtime(&stime);
-	strftime(thistime, sizeof(thistime), "%Y%m%d %H%M%S", ltime);
-
-	if (!file.FindFile(_T("SaveData")))//将数据保存在SaveData文件夹中
-		CreateDirectory(_T("SaveData"), NULL);
-	memset(filePath, 0, sizeof(filePath));
-	memset(fileName, 0, sizeof(fileName));
-	strcpy(filePath, "SaveData\\");
-	strcat(fileName, thistime);//以存储时间命名文件
-	strcat(fileName, ".txy");//??????????????????????????????????????
-	strcat(filePath, fileName);
-	dumpFile = pcap_dump_open(dpHandle, filePath);
-	if (dumpFile == NULL)
-	{
-		MessageBox(_T("文件创建错误！"));
-		return -1;
-	}
-
-	//(8)接收数据，创建线程
+	//(7)接收数据，创建线程
 	LPDWORD threadCap = NULL;
 	m_ThreadHandle = CreateThread(NULL, 0, txysniffer_capThread, this, 0, threadCap);
 	if (m_ThreadHandle == NULL) {
@@ -524,71 +499,6 @@ DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 		pthis->txysniffer_updatePacket();
 		pthis->txysniffer_updateList(data_header, data, pkt_data);
 	}
-	return 1;
-}
-
-//保存文件
-int CtxysnifferDlg::txysniffer_saveFile()
-{
-	CFileFind find;
-	if (find.FindFile(CString(filePath)) == NULL)
-	{
-		MessageBox(_T("保存文件失败"));
-		return -1;
-	}
-
-	//保存文件对话框
-	char szFilter[] = "txy文件(*.txy)|*.txy||";//????????????????????????????
-	CFileDialog openDlg(FALSE, _T(".txy"), 0, 0, szFilter);
-	openDlg.m_ofn.lpstrInitialDir = _T("D:\\");
-	if (openDlg.DoModal() == IDOK)
-		CopyFile(CString(filePath), openDlg.GetPathName(), TRUE);
-
-	return 1;
-}
-
-//读取文件
-int CtxysnifferDlg::txysniffer_readFile(CString path)
-{
-	//处理路径
-	int len = path.GetLength() + 1;
-	char* charPath = (char *)malloc(len);
-	memset(charPath, 0, len);
-	if (charPath == NULL)
-		return -1;
-	for (int i = 0; i < len; i++)
-		charPath[i] = (char)path.GetAt(i);
-
-	//打开文件
-	pcap_t *fp;
-	if ((fp = pcap_open_offline(charPath, errorBufffer)) == NULL) 
-	{
-		MessageBox(_T("打开文件错误") + CString(errorBufffer));
-		return -1;
-	}
-
-	struct pcap_pkthdr *data_header;//数据包头
-	const u_char *pkt_data = NULL;//收到的字节流数据
-	while (pcap_next_ex(fp, &data_header, &pkt_data) >= 0) {
-		struct data_packet *data = (struct data_packet*)malloc(sizeof(struct data_packet));
-		memset(data, 0, sizeof(struct data_packet));
-
-		if (data == NULL) 
-		{
-			MessageBox(_T("空间不足，无法接收新的数据包"));
-			return  -1;
-		}
-
-		//分析出错或所接收数据包不在处理范围内
-		if (analyse_data_frame(pkt_data, data, &(this->packetCount)) < 0)
-			continue;
-
-		//更新各类数据包计数
-		this->txysniffer_updatePacket();
-		this->txysniffer_updateList(data_header, data, pkt_data);
-	}
-
-	pcap_close(fp);
 	return 1;
 }
 
@@ -1010,14 +920,6 @@ void CtxysnifferDlg::OnBnClickedButton2()
 void CtxysnifferDlg::OnBnClickedButton3()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	if (this->txysniffer_saveFile() < 0)
-		return;
-}
-
-
-void CtxysnifferDlg::OnBnClickedButton4()
-{
-	// TODO: 在此添加控件通知处理程序代码
 	//清空数据
 	this->m_list.DeleteAllItems();
 	this->packetNum = 1;
@@ -1025,16 +927,12 @@ void CtxysnifferDlg::OnBnClickedButton4()
 	this->m_netDataList.RemoveAll();
 	memset(&(this->packetCount), 0, sizeof(struct packet_count));
 
-	//打开文件对话框
-	char szFilter[] = "txy文件(*.txy)|*.txy||";
-	CFileDialog FileDlg(TRUE, ".txy", 0, 0, szFilter);
-	FileDlg.m_ofn.lpstrInitialDir = _T("D:\\");
-	if (FileDlg.DoModal() == IDOK) 
-	{
-		int ret = this->txysniffer_readFile(FileDlg.GetPathName());
-		if (ret < 0)
-			return;
-	}
+}
+
+
+void CtxysnifferDlg::OnBnClickedButton4()
+{
+	// TODO: 在此添加控件通知处理程序代码
 }
 
 
@@ -1050,45 +948,4 @@ void CtxysnifferDlg::OnLvnItemchangedList1(NMHDR *pNMHDR, LRESULT *pResult)
 		this->txysniffer_updateTree(index);//更新对应行的树形框
 	}
 	*pResult = 0;
-}
-
-//为列表中不同协议的数据设置不同颜色
-void CtxysnifferDlg::OnNMCustomdrawList1(NMHDR *pNMHDR, LRESULT *pResult)
-{
-	LPNMLVCUSTOMDRAW pNMCD = (LPNMLVCUSTOMDRAW)pNMHDR;
-	// TODO: 在此添加控件通知处理程序代码
-	*pResult = 0;
-
-	if (CDDS_PREPAINT == pNMCD->nmcd.dwDrawStage)
-		*pResult = CDRF_NOTIFYITEMDRAW;
-	else if (CDDS_ITEMPREPAINT == pNMCD->nmcd.dwDrawStage) 
-	{
-		POSITION pos = this->m_localDataList.FindIndex(pNMCD->nmcd.dwItemSpec);//新加入列表中的数据位置
-		struct data_packet * localData = (struct data_packet *)this->m_localDataList.GetAt(pos);
-
-		char buffer[10];
-		memset(buffer, 0, sizeof(buffer));
-		strcpy(buffer, localData->type);
-
-		COLORREF crText;
-		if (!strcmp(buffer, "ARP"))
-			crText = RGB(226, 238, 227);
-		if (!strcmp(buffer, "IPv4"))
-			crText = RGB(255, 182, 193);
-		if (!strcmp(buffer, "IPv6"))
-			crText = RGB(111, 224, 254);
-		if (!strcmp(buffer, "TCP"))
-			crText = RGB(230, 230, 230);
-		if (!strcmp(buffer, "UDP"))
-			crText = RGB(194, 195, 252);
-		if (!strcmp(buffer, "ICMPv4"))
-			crText = RGB(49, 164, 238);
-		if (!strcmp(buffer, "ICMPv6"))
-			crText = RGB(189, 254, 76);
-		if (!strcmp(buffer, "HTTP"))
-			crText = RGB(238, 232, 180);
-
-		pNMCD->clrTextBk = crText;
-		*pResult = CDRF_DODEFAULT;
-	}
 }
