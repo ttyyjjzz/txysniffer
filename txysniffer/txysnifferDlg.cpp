@@ -8,23 +8,23 @@
 #include "afxdialogex.h"
 #include "pcap.h"
 #include "protocol.h"
-
-/*#include <vector>
-using namespace std;*/
+#include <atlconv.h>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-
-// 用于应用程序“关于”菜单项的 CAboutDlg 对话框
-
 #define M_MESSAGEWINPCAP (WM_USER+50)
 char *filter;
 static HWND hDlgHandle;
+DWORD dwThread;
 DWORD WINAPI txysniffer_capThread(LPVOID lpParameter);
 void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data);
+CFile *m_pfileData;  // 保存数据包的文件
+CFile *m_pfileIndex; // 数据包索引文件
+int m_iCurNo;       // 当前序号位置
 
+// 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 class CAboutDlg : public CDialogEx
 {
 public:
@@ -61,7 +61,16 @@ END_MESSAGE_MAP()
 
 
 CtxysnifferDlg::CtxysnifferDlg(CWnd* pParent /*=NULL*/)
-	: CDialogEx(IDD_TXYSNIFFER_DIALOG, pParent)
+	: CDialogEx(IDD_TXYSNIFFER_DIALOG, pParent),
+	num_arp(0),
+	num_ip(0),
+	num_udp(0),
+	num_tcp(0),
+	num_icmp(0),
+	num_http(0),
+	num_ftp(0),
+	num_total(0)
+
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -99,6 +108,7 @@ BEGIN_MESSAGE_MAP(CtxysnifferDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
+	ON_MESSAGE(M_MESSAGEWINPCAP, Message_Pcap)
 	ON_BN_CLICKED(IDC_BUTTON1, &CtxysnifferDlg::OnBnClickedButton1)
 	ON_BN_CLICKED(IDC_BUTTON2, &CtxysnifferDlg::OnBnClickedButton2)
 	ON_BN_CLICKED(IDC_BUTTON3, &CtxysnifferDlg::OnBnClickedButton3)
@@ -147,6 +157,7 @@ BOOL CtxysnifferDlg::OnInitDialog()
 	m_list.InsertColumn(0, _T("编号"), 2, 50);//2居中
 	m_list.InsertColumn(1, _T("时间"), 2, 200);
 	m_list.InsertColumn(2, _T("长度"), 2, 100);
+	m_list.InsertColumn(3, _T("Ethernet 类型"), 2, 120);
 	m_list.InsertColumn(3, _T("源MAC地址"), 2, 200);
 	m_list.InsertColumn(4, _T("目的MAC地址"), 2, 200);
 	m_list.InsertColumn(5, _T("协议"), 2, 100);
@@ -156,7 +167,6 @@ BOOL CtxysnifferDlg::OnInitDialog()
 	//下拉框
 	m_netcardComboBox.AddString(_T("请选择网卡(必选)"));
 	txysniffer_initCap();//获取所有网卡显示到下拉框中
-		return FALSE;
 	m_netcardComboBox.SetCurSel(0);//默认显示
 
 	//协议选择CheckBox
@@ -169,6 +179,8 @@ BOOL CtxysnifferDlg::OnInitDialog()
 	m_HTTPcheck.GetCheck() == BST_UNCHECKED;
 	m_FTPcheck.GetCheck() == BST_UNCHECKED;
 
+	hDlgHandle = this->GetSafeHwnd();
+	txysniffer_initCap();
 	return TRUE;// 除非将焦点设置到控件，否则返回 TRUE
 }
 
@@ -228,7 +240,6 @@ void CtxysnifferDlg::txysniffer_initCap()
 	pcap_if_t *nc;//网卡
 	int ncCount;//网卡计数
 	char errorBufffer[PCAP_ERRBUF_SIZE];//错误缓冲区
-
 	ncCount = 0;
 	if (pcap_findalldevs(&allncs, errorBufffer) == -1)
 		return ;
@@ -238,78 +249,100 @@ void CtxysnifferDlg::txysniffer_initCap()
 			m_netcardComboBox.AddString(CString(nc->description));
 		ncCount++;
 	}
+	delete allncs;
+}
+
+pcap_if_t* CtxysnifferDlg::get_ncList()
+{
+	char errorBufffer[PCAP_ERRBUF_SIZE];
+	pcap_if_t* m_allncs = new pcap_if_t();
+	if (pcap_findalldevs_ex(PCAP_SRC_IF_STRING, NULL, &m_allncs, errorBufffer) == -1)
+	{
+		CString errmsg;
+		USES_CONVERSION;
+		errmsg.Format(_T("列出网卡错误: %s\n"), A2W(errorBufffer));
+		MessageBox(errmsg);
+		return NULL;
+	}
+	else if (m_allncs == NULL)
+	{
+		MessageBox(_T("列出网卡错误"));
+		return NULL;
+	}
+	else
+		return m_allncs;
+}
+
+pcap_if_t* CtxysnifferDlg::get_nc(int incNo, int iTotalncs)
+{
+	pcap_if_t* allncs = get_ncList();
+	pcap_if_t* pSeletednc = new pcap_if_t;
+	pSeletednc = NULL;
+	int i;
+	for (pSeletednc = allncs, i = 0; i < incNo; pSeletednc = pSeletednc->next, i++);
+	return pSeletednc;
+
+	if (pSeletednc)
+	{
+		delete pSeletednc;
+		pSeletednc = NULL;
+	}
 }
 
 //////////////////////1.2数据包抓取//////////////////////
 DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 {
-	pcap_if_t *allncs;//网卡列表
-	pcap_if_t *nc;//网卡
+	pcap_if_t* pSelectednc = (pcap_if_t*)lpParameter;
 	pcap_t *dpHandle;//捕获
 	char errorBufffer[PCAP_ERRBUF_SIZE];//错误缓冲区
 
-	CtxysnifferDlg *pthis = (CtxysnifferDlg*)lpParameter;
-
-	//(1)网卡的选择设置
-	int ncIndex;//网卡索引
-
-	ncIndex = pthis->m_netcardComboBox.GetCurSel();
-	if (ncIndex == 0 || ncIndex == CB_ERR)
-	{
-		MessageBox(_T("请选择合适的网卡接口"));
-		return -1;
-	}
-
-	//(2)获得选中网卡
+	//获得选中网卡
 	int dataPackageLen = 65536;//数据包长度
 	int mode = 1;//网卡模式标志
 	int overtime = 1000;//读超时时间
 
-	nc = allncs;
-	for (int i = 0; i < ncIndex - 1; i++)
-		nc = nc->next;
-	dpHandle = pcap_open_live(nc->name, dataPackageLen, mode, overtime, errorBufffer);//打开指定网卡接口
+	dpHandle = pcap_open_live(pSelectednc->name, dataPackageLen, mode, overtime, errorBufffer);//打开指定网卡接口
 	if (dpHandle == NULL)
 	{
-		MessageBox(_T("网卡接口无法打开") + CString(nc->description));
-		pcap_freealldevs(allncs);//释放设备列表
+		MessageBox(_T("网卡接口无法打开") + CString(pSelectednc->name));
+		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
 
-	//(3)检查是否是以太网
+	//检查是否是以太网
 	if (pcap_datalink(dpHandle) != DLT_EN10MB)
 	{
 		MessageBox(_T("非以太网！"));
-		pcap_freealldevs(allncs);//释放设备列表
+		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
 
-	//(4)设置子网掩码
+	//设置子网掩码
 	u_int netmask;//子网掩码
-	if (nc->addresses != NULL)
-		netmask = ((struct sockaddr_in *)(nc->addresses->netmask))->sin_addr.S_un.S_addr;
+	if (pSelectednc->addresses != NULL)
+		netmask = ((struct sockaddr_in *)(pSelectednc->addresses->netmask))->sin_addr.S_un.S_addr;
 	else//若接口没有地址，假设一个C类的掩码
 		netmask = 0xffffff;
 
-	//(5)编译过滤器
+	//编译过滤器
 	struct bpf_program fcode;
 
 	if (pcap_compile(dpHandle, &fcode, filter, 1, netmask) < 0)
 	{
 		MessageBox(_T("无法编译过滤器"));
-		pcap_freealldevs(allncs);//释放设备列表
+		pcap_freealldevs(pSelectednc);//释放设备列表
 		return -1;
 	}
 
-	//(6)设置过滤器
+	//设置过滤器
 	if (pcap_setfilter(dpHandle, &fcode) < 0)
 	{
 		MessageBox(_T("过滤器设置错误"));
-		pcap_freealldevs(allncs);//释放设备列表
+		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
 
-	pcap_freealldevs(allncs);//释放设备列表	
+	pcap_freealldevs(pSelectednc);//释放设备
 	pcap_loop(dpHandle, 0, packet_handler, NULL);
 	pcap_close(dpHandle);
 
@@ -328,6 +361,45 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 	//把消息放入队列
 	::PostMessage(hDlgHandle, M_MESSAGEWINPCAP, (WPARAM)header2, (LPARAM)pkt_data2);
 
+}
+
+LRESULT CtxysnifferDlg::Message_Pcap(WPARAM wParam, LPARAM lParam)
+{
+	const struct pcap_pkthdr *header = (const struct pcap_pkthdr *)wParam;
+	const u_char *pkt_data = (const u_char *)lParam;
+
+	packet *pkt = new packet;
+	pkt->header = header;
+	pkt->pkt_data = pkt_data;
+	++m_iCurNo;
+	packet_index index;
+	index.no = m_iCurNo;
+	index.pos = m_pfileData->GetPosition();
+	index.len = sizeof(pcap_pkthdr) + header->len;
+
+	m_pfileIndex->SeekToEnd();
+	m_pfileIndex->Write(&index, sizeof(packet_index));
+
+	m_pfileData->SeekToEnd();
+	m_pfileData->Write(header, sizeof(pcap_pkthdr));
+	m_pfileData->Write(pkt_data, header->len);
+
+	m_pfileIndex->Flush();
+	m_pfileData->Flush();
+
+	txysniffer_updateList(pkt);
+	txysniffer_updatePacket();
+
+	return NULL;
+
+	if (pkt)
+	{
+		if (pkt->header)
+			delete pkt->header;
+		if (pkt->pkt_data)
+			delete pkt->pkt_data;
+		delete pkt;
+	}
 }
 
 //////////////////////2协议分析//////////////////////
@@ -454,8 +526,83 @@ int CtxysnifferDlg::txysniffer_updatePacket()
 	return 1;
 }
 
-//更新列表，设置协议过滤器并把信息显示在列表中
-int CtxysnifferDlg::txysniffer_updateList()
+//更新列表
+int CtxysnifferDlg::txysniffer_updateList(packet *tmp_pkt)
+{
+	packet *pkt = new packet;
+	const struct pcap_pkthdr *header = new pcap_pkthdr;
+	const u_char *pkt_data = new u_char;
+
+	pkt = tmp_pkt;
+	header = pkt->header;
+	pkt_data = pkt->pkt_data;
+
+	//No
+	int iNoCount = m_list.GetItemCount();
+	int iNoDisp = iNoCount + 1;
+	TCHAR strNo[10];
+	_itow_s(iNoDisp, strNo, 10);
+	//长度
+	TCHAR strLength[10];
+	_itow_s(header->len, strLength, 10);
+	//时间戳
+	struct tm lTime = { 0,0,0,0,0,0,0,0,0 };
+	struct tm *plTime = &lTime;
+	char strTime[16];
+	time_t local_tv_sec;
+	local_tv_sec = header->ts.tv_sec;
+	localtime_s(plTime, &local_tv_sec);
+	strftime(strTime, sizeof strTime, "%H:%M:%S", plTime);
+
+	//MAC
+	eth_header *eth_hdr = (eth_header *)pkt_data;
+	TCHAR eth_srcMac[18];
+	TCHAR eth_dstMac[18];
+	CString eth_strType = NULL;
+	get_MacAddress(eth_srcMac, eth_hdr->src);
+	get_MacAddress(eth_dstMac, eth_hdr->dest);
+	get_MacType(eth_strType, ntohs(eth_hdr->type), true);
+
+	//IP
+	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
+	TCHAR ip_srcAddr[16];
+	TCHAR ip_dstAddr[16];
+	CString ip_strProtocol = NULL;
+	get_IPAddress(ip_srcAddr, &ip_hdr->src_addr);
+	get_IPAddress(ip_dstAddr, &ip_hdr->dest_addr);
+	get_IPType(ip_strProtocol, ip_hdr->proto, true);
+	IsHTTP(pkt_data);
+
+	m_list.InsertItem(iNoCount, strNo);
+	USES_CONVERSION;
+	m_list.SetItemText(iNoCount, 1, A2W(strTime));
+	m_list.SetItemText(iNoCount, 2, strLength);
+	m_list.SetItemText(iNoCount, 3, eth_strType);
+	m_list.SetItemText(iNoCount, 4, eth_srcMac);
+	m_list.SetItemText(iNoCount, 5, eth_dstMac);
+	m_list.SetItemText(iNoCount, 6, ip_strProtocol);
+	m_list.SetItemText(iNoCount, 7, ip_srcAddr);
+	m_list.SetItemText(iNoCount, 8, ip_dstAddr);
+
+	if (pkt)
+	{
+		delete pkt;
+		pkt = NULL;
+	}
+	if (header)
+	{
+		delete header;
+		header = NULL;
+	}
+	if (pkt_data)
+	{
+		delete pkt_data;
+		pkt_data = NULL;
+	}
+	return 1;
+}
+//*******************************************
+int CtxysnifferDlg::txysniffer_filterList()
 {
 	if (m_ALLcheck.GetCheck() == BST_CHECKED)//all
 	{
@@ -496,100 +643,6 @@ int CtxysnifferDlg::txysniffer_updateList()
 	UpdateData(true);  // 把控件的值传给对应的变量
 	UpdateData(false); // 把变量的值传递给控件
 	
-	/*//建立数据包链表，保存本地化后的数据
-	u_char *data_packet_list;
-	data_packet_list = (u_char*)malloc(data_header->len);
-	memcpy(data_packet_list, pkt_data, data_header->len);
-
-	this->m_localDataList.AddTail(data);
-	this->m_netDataList.AddTail(data_packet_list);
-
-	//获取长度
-	data->len = data_header->len;
-	//获取时间
-	time_t local_tv_sec = data_header->ts.tv_sec;
-	struct tm *ltime = localtime(&local_tv_sec);
-	data->time[0] = ltime->tm_year + 1900;
-	data->time[1] = ltime->tm_mon + 1;
-	data->time[2] = ltime->tm_mday;
-	data->time[3] = ltime->tm_hour;
-	data->time[4] = ltime->tm_min;
-	data->time[5] = ltime->tm_sec;
-
-	//为新接收到的数据包在列表控件中新建项
-	CString buffer;
-	buffer.Format(_T("%d"), this->packetNum);
-	int nextItem = this->m_list.InsertItem(this->packetNum, buffer);
-
-	//时间戳
-	CString timestr;
-	timestr.Format(_T("%d/%d/%d  %d:%d:%d"), data->time[0],
-		data->time[1], data->time[2], data->time[3], data->time[4], data->time[5]);
-	this->m_list.SetItemText(nextItem, 1, timestr);
-
-	//长度
-	buffer.Empty();
-	buffer.Format(_T("%d"), data->len);
-	this->m_list.SetItemText(nextItem, 2, buffer);
-
-	//源MAC
-	buffer.Empty();
-	buffer.Format(_T("%02X-%02X-%02X-%02X-%02X-%02X"), data->ethh->src[0], data->ethh->src[1],
-		data->ethh->src[2], data->ethh->src[3], data->ethh->src[4], data->ethh->src[5]);
-	this->m_list.SetItemText(nextItem, 3, buffer);
-
-	//目的MAC
-	buffer.Empty();
-	buffer.Format(_T("%02X-%02X-%02X-%02X-%02X-%02X"), data->ethh->dest[0], data->ethh->dest[1],
-		data->ethh->dest[2], data->ethh->dest[3], data->ethh->dest[4], data->ethh->dest[5]);
-	this->m_list.SetItemText(nextItem, 4, buffer);
-
-	//协议
-	this->m_list.SetItemText(nextItem, 5, CString(data->type));
-
-	//源IP
-	buffer.Empty();
-	if (data->ethh->type == PROTO_ARP) {
-		buffer.Format(_T("%d.%d.%d.%d"), data->arph->src_ip[0],
-			data->arph->src_ip[1], data->arph->src_ip[2], data->arph->src_ip[3]);
-	}
-	else if (data->ethh->type == PROTO_IP_V4) {
-		struct  in_addr in;
-		in.S_un.S_addr = data->ip4h->src_addr;
-		buffer = CString(inet_ntoa(in));
-	}
-	else if (data->ethh->type == PROTO_IP_V6) {
-		for (int i = 0; i < 8; i++) {
-			if (i <= 6)
-				buffer.AppendFormat(_T("%02x:"), data->ip6h->src_addr[i]);
-			else
-				buffer.AppendFormat(_T("%02x"), data->ip6h->src_addr[i]);
-		}
-	}
-	this->m_list.SetItemText(nextItem, 6, buffer);
-
-	//目的IP
-	buffer.Empty();
-	if (data->ethh->type == PROTO_ARP) {
-		buffer.Format(_T("%d.%d.%d.%d"), data->arph->dest_ip[0],
-			data->arph->dest_ip[1], data->arph->dest_ip[2], data->arph->dest_ip[3]);
-	}
-	else if (data->ethh->type == PROTO_IP_V4) {
-		struct in_addr in;
-		in.S_un.S_addr = data->ip4h->dest_addr;
-		buffer = CString(inet_ntoa(in));
-	}
-	else if (data->ethh->type == PROTO_IP_V6) {
-		for (int i = 0; i < 8; i++) {
-			if (i <= 6)
-				buffer.AppendFormat(_T("%02x:"), data->ip6h->dest_addr[i]);
-			else
-				buffer.AppendFormat(_T("%02x"), data->ip6h->dest_addr[i]);
-		}
-	}
-	this->m_list.SetItemText(nextItem, 7, buffer);
-
-	this->packetNum++;//包计数*/
 	return 1;
 }
 
@@ -654,72 +707,15 @@ int CtxysnifferDlg::txysniffer_updateTree_mac(HTREEITEM & hItem, const u_char * 
 	m_tree.InsertItem(str, hItem);
 
 	get_MacAddress(mac_srcAddr, mac_hdr->src);
-	str.Format(_T("源MAC："), mac_srcAddr);
+	str.Format(_T("源MAC：%s"), mac_srcAddr);
 	m_tree.InsertItem(str, hItem);
 
 	get_MacAddress(mac_dstAddr, mac_hdr->dest);
-	str.Format(_T("目的MAC："), mac_dstAddr);
+	str.Format(_T("目的MAC：%s"), mac_dstAddr);
 	m_tree.InsertItem(str, hItem);
 
 	return 1;
 }
-	//网络层
-	/*//ARP头
-	if (localData->ethh->type == PROTO_ARP)
-	{
-		HTREEITEM arp = this->m_tree.InsertItem(_T("ARP头"), data);
-		str.Format(_T("硬件类型：%d"), localData->arph->hard);
-		this->m_tree.InsertItem(str, arp);
-		str.Format(_T("协议类型：0x%02x"), localData->arph->pro);
-		this->m_tree.InsertItem(str, arp);
-		str.Format(_T("硬件地址长度：%d"), localData->arph->hard_len);
-		this->m_tree.InsertItem(str, arp);
-		str.Format(_T("协议地址长度：%d"), localData->arph->pro_len);
-		this->m_tree.InsertItem(str, arp);
-		str.Format(_T("操作码：%d"), localData->arph->oper);
-		this->m_tree.InsertItem(str, arp);
-
-		str.Format(_T("发送方MAC："));
-		for (int i = 0; i < 6; i++) 
-		{
-			if (i <= 4)
-				str.AppendFormat(_T("%02x-"), localData->arph->src_mac[i]);
-			else
-				str.AppendFormat(_T("%02x"), localData->arph->src_mac[i]);
-		}
-		this->m_tree.InsertItem(str, arp);
-
-		str.Format(_T("发送方IP："));
-		for (int i = 0; i < 4; i++) 
-		{
-			if (i <= 2)
-				str.AppendFormat(_T("%d."), localData->arph->src_ip[i]);
-			else
-				str.AppendFormat(_T("%d"), localData->arph->src_ip[i]);
-		}
-		this->m_tree.InsertItem(str, arp);
-
-		str.Format(_T("接收方MAC："));
-		for (int i = 0; i < 6; i++) 
-		{
-			if (i <= 4)
-				str.AppendFormat(_T("%02x-"), localData->arph->dest_mac[i]);
-			else
-				str.AppendFormat(_T("%02x"), localData->arph->dest_mac[i]);
-		}
-		this->m_tree.InsertItem(str, arp);
-
-		str.Format(_T("接收方IP："));
-		for (int i = 0; i < 4; i++)
-		{
-			if (i <= 2)
-				str.AppendFormat(_T("%d."), localData->arph->dest_ip[i]);
-			else
-				str.AppendFormat(_T("%d"), localData->arph->dest_ip[i]);
-		}
-		this->m_tree.InsertItem(str, arp);
-	}*/
-
 
 int CtxysnifferDlg::txysniffer_updateTree_ip(HTREEITEM & hItem, const u_char * pkt_data)
 {
@@ -832,7 +828,7 @@ int CtxysnifferDlg::txysniffer_updateTree_icmp(HTREEITEM & hItem, const u_char *
 	u_short ip_hdrLen = ip_hdr->ihl * 4;
 	icmp_header *icmp_hdr = (icmp_header *)(pkt_data + 14 + ip_hdrLen);
 	
-	hItem = m_tree.InsertItem(_T("ICMPv4头"));
+	hItem = m_tree.InsertItem(_T("ICMP头"));
 	CString str = NULL;
 	str.Format(_T("类型:%d"), icmp_hdr->type);
 	m_tree.InsertItem(str, hItem);
@@ -966,24 +962,24 @@ void CtxysnifferDlg::OnBnClickedButton1()
 {
 	// TODO: 在此添加控件通知处理程序代码
 
-	//清空数据
-	this->packetNum = 1; //重新计数
-	this->m_localDataList.RemoveAll();
-	this->m_netDataList.RemoveAll();
-	memset(&(this->packetCount), 0, sizeof(struct packet_count));
-	this->txysniffer_updatePacket();
+	txysniffer_updateList();//调用过滤器，默认是选中ALL全部协议
 
-	if (this->txysniffer_startCap() < 0)
+	int incNo = m_netcardComboBox.GetCurSel();
+	int iTotalnc = m_netcardComboBox.GetCount();
+	if (incNo < 0 || incNo >(iTotalnc - 1))
+	{
+		MessageBox(_T("Interface number out of range..."));
 		return;
+	}
+	pcap_if_t* pSelectnc = get_nc(incNo, iTotalnc);
+	CloseHandle(m_ThreadHandle);
 
-	this->m_list.DeleteAllItems();
-	this->m_tree.DeleteAllItems();
-	this->m_edit.SetWindowText(_T(""));
-	this->m_startbutton.EnableWindow(FALSE);
-	this->m_stopbutton.EnableWindow(TRUE);
-	this->m_clearbutton.EnableWindow(FALSE);
+	m_ThreadHandle = CreateThread(NULL, 0, txysniffer_capThread, (LPVOID)pSelectnc, 0, &dwThread);
+
+	m_startbutton.EnableWindow(FALSE);
+	m_stopbutton.EnableWindow(TRUE);
+	m_clearbutton.EnableWindow(FALSE);
 }
-
 
 void CtxysnifferDlg::OnBnClickedButton2()
 {
@@ -1019,8 +1015,12 @@ void CtxysnifferDlg::OnBnClickedButton3()
 void CtxysnifferDlg::OnBnClickedButton4()
 {
 	// TODO: 在此添加控件通知处理程序代码
+	UINT i;
+	i = MessageBox(_T("确认要退出程序吗？"), _T("温馨提示"), MB_YESNO | MB_ICONQUESTION);
+	if (i == IDNO)
+		return;
+	CDialogEx::OnOK();
 }
-
 
 void CtxysnifferDlg::OnLvnItemchangedList1(NMHDR *pNMHDR, LRESULT *pResult)
 {
