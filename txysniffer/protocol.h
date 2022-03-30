@@ -71,8 +71,8 @@ typedef struct ip_header {
 	u_char ttl;//生存时间，1个字节
 	u_char proto;//协议，1个字节
 	u_short check;//校验和，2个字节
-	u_int src_addr;//源地址，4个字节
-	u_int dest_addr;//目的地址，4个字节
+	struct ip_address src_addr;//源地址，4个字节
+	struct ip_address dest_addr;//目的地址，4个字节
 	u_int opt;//选项等，4个字节
 } ip_header;
 
@@ -173,12 +173,10 @@ struct data_packet {
 
 	struct eth_header *ethh;//MAC头
 	struct arp_header *arph;//ARP头
-	struct ipv4_header *ip4h;//IPv4头
-	struct ipv6_header *ip6h;//IPv6头
+	struct ipv4_header *iph;//IP头
 	struct tcp_header *tcph;//TCP头
 	struct udp_header *udph;//UDP头
-	struct icmpv4_header *icmp4h;//ICMPv4头
-	struct icmpv6_header *icmp6h;//ICMPv6头
+	struct icmpv4_header *icmph;//ICMP头
 	void *apph;//应用层包头
 };
 

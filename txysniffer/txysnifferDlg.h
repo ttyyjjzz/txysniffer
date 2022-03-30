@@ -21,20 +21,10 @@ public:
 	char fileName[1024];//文件名称
 	pcap_dumper_t *dumpFile;//存储网络数据的文件描述符
 
-	int txysniffer_updatePacket();//更新数据包
-	int txysniffer_updateList(struct pcap_pkthdr *data_header, struct data_packet *data, const u_char *pkt_data);//更新列表
-
 	HANDLE m_ThreadHandle;//接收数据线程
-	struct packet_count packetCount;//各类包计数器
 	CPtrList m_localDataList;//保存本地化的数据包
 	CPtrList m_netDataList;//保存网络中获取的数据包
 	int packetNum;//包统计
-
-	int txysniffer_saveFile();//保存文件
-	int txysniffer_readFile(CString path);//读取文件
-	void print_packet_hex(const u_char* packet, int packet_size, CString *bufffer);//编辑框数据格式化显示
-	int txysniffer_updateEdit(int index);//更新编辑框
-	int txysniffer_updateTree(int index);//更新树形框
 
 
 // 对话框数据
@@ -95,6 +85,17 @@ public:
 	int get_IPType(CString &ip_strIP, u_short ip_Type, bool isFirst);//获取IP类型
 	int get_IPAddress(TCHAR * ip_Address, ip_address *ip_addr);//获取IP地址
 
+	int txysniffer_updatePacket();//更新数据包
+	int txysniffer_updateList();//更新列表
+	int txysniffer_updateEdit(CEdit & medit, packet *pkt);//更新编辑框
+	int txysniffer_updateTree_mac(HTREEITEM & hItem, const u_char * pkt_data);
+	int txysniffer_updateTree_ip(HTREEITEM & hItem, const u_char * pkt_data);
+	int txysniffer_updateTree_tcp(HTREEITEM & hItem, const u_char * pkt_data);
+	int txysniffer_updateTree_udp(HTREEITEM & hItem, const u_char * pkt_data);
+	int txysniffer_updateTree_icmp(HTREEITEM & hItem, const u_char * pkt_data);
+	int txysniffer_updateTree_http(HTREEITEM & hItem, const u_char * pkt_data);
+	bool IsHTTP(const u_char *pkt_data);
+
 private:
 	int num_arp;//ARP
 	int num_ip;//IP
@@ -103,6 +104,5 @@ private:
 	int num_icmp;//ICMP
 	int num_http;//HTTP
 	int num_ftp;//ftp
-	int num_smtp;//SMTP
 	int num_total;//总计
 };
