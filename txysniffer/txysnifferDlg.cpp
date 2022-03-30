@@ -17,7 +17,11 @@
 
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 
+#define M_MESSAGEWINPCAP (WM_USER+50)
+char *filter;
+static HWND hDlgHandle;
 DWORD WINAPI txysniffer_capThread(LPVOID lpParameter);
+void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data);
 
 class CAboutDlg : public CDialogEx
 {
@@ -65,23 +69,28 @@ void CtxysnifferDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_BUTTON1, m_startbutton);
 	DDX_Control(pDX, IDC_BUTTON2, m_stopbutton);
-	DDX_Control(pDX, IDC_BUTTON3, m_savebutton);
-	DDX_Control(pDX, IDC_BUTTON4, m_readbutton);
+	DDX_Control(pDX, IDC_BUTTON3, m_clearbutton);
+	DDX_Control(pDX, IDC_BUTTON4, m_exitbutton);
 	DDX_Control(pDX, IDC_COMBO1, m_netcardComboBox);
-	DDX_Control(pDX, IDC_COMBO2, m_rulefilterComboBox);
 	DDX_Control(pDX, IDC_EDIT1, m_TCPedit);
 	DDX_Control(pDX, IDC_EDIT2, m_UDPedit);
 	DDX_Control(pDX, IDC_EDIT3, m_HTTPedit);
 	DDX_Control(pDX, IDC_EDIT4, m_ARPedit);
-	DDX_Control(pDX, IDC_EDIT5, m_IPv4edit);
-	DDX_Control(pDX, IDC_EDIT6, m_IPv6edit);
-	DDX_Control(pDX, IDC_EDIT7, m_ICMPv4edit);
-	DDX_Control(pDX, IDC_EDIT9, m_ICMPv6edit);
+	DDX_Control(pDX, IDC_EDIT5, m_IPedit);
+	DDX_Control(pDX, IDC_EDIT7, m_ICMPedit);
 	DDX_Control(pDX, IDC_EDIT10, m_elseedit);
 	DDX_Control(pDX, IDC_EDIT11, m_totaledit);
-	DDX_Control(pDX, IDC_EDIT12, m_edit);
+	DDX_Control(pDX, IDC_EDIT12, m_edit);//数据包内容显示
 	DDX_Control(pDX, IDC_LIST1, m_list);
 	DDX_Control(pDX, IDC_TREE1, m_tree);
+	DDX_Control(pDX, IDC_CHECK1, m_ALLcheck);
+	DDX_Control(pDX, IDC_CHECK2, m_ARPcheck);
+	DDX_Control(pDX, IDC_CHECK3, m_IPcheck);
+	DDX_Control(pDX, IDC_CHECK4, m_TCPcheck);
+	DDX_Control(pDX, IDC_CHECK5, m_UDPcheck);
+	DDX_Control(pDX, IDC_CHECK6, m_ICMPcheck);
+	DDX_Control(pDX, IDC_CHECK7, m_HTTPcheck);
+	DDX_Control(pDX, IDC_CHECK8, m_FTPcheck);
 }
 
 BEGIN_MESSAGE_MAP(CtxysnifferDlg, CDialogEx)
@@ -144,21 +153,19 @@ BOOL CtxysnifferDlg::OnInitDialog()
 
 	//下拉框
 	m_netcardComboBox.AddString(_T("请选择网卡(必选)"));
-	m_rulefilterComboBox.AddString(_T("请选择过滤规则"));
-	if (txysniffer_initCap() < 0)//初始化WinPcap
+	txysniffer_initCap();//获取所有网卡显示到下拉框中
 		return FALSE;
-	for (nc = allncs; nc; nc = nc->next)//将可用网卡添加到下拉网卡候选栏
-		if (nc->description)
-			m_netcardComboBox.AddString(CString(nc->description));
-
-	m_rulefilterComboBox.AddString(CString("ARP"));//候选栏选项
-	m_rulefilterComboBox.AddString(CString("IP"));
-	m_rulefilterComboBox.AddString(CString("TCP"));
-	m_rulefilterComboBox.AddString(CString("UDP"));
-	m_rulefilterComboBox.AddString(CString("ICMP"));
-
 	m_netcardComboBox.SetCurSel(0);//默认显示
-	m_rulefilterComboBox.SetCurSel(0);
+
+	//协议选择CheckBox
+	m_ALLcheck.GetCheck() == BST_CHECKED;
+	m_ARPcheck.GetCheck() == BST_UNCHECKED;
+	m_IPcheck.GetCheck() == BST_UNCHECKED;
+	m_TCPcheck.GetCheck() == BST_UNCHECKED;
+	m_UDPcheck.GetCheck() == BST_UNCHECKED;
+	m_ICMPcheck.GetCheck() == BST_UNCHECKED;
+	m_HTTPcheck.GetCheck() == BST_UNCHECKED;
+	m_FTPcheck.GetCheck() == BST_UNCHECKED;
 
 	return TRUE;// 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -213,34 +220,41 @@ HCURSOR CtxysnifferDlg::OnQueryDragIcon()
 }
 
 //////////////////////1、初始化winpcap//////////////////////
-int CtxysnifferDlg::txysniffer_initCap()
+void CtxysnifferDlg::txysniffer_initCap()
 {
+	pcap_if_t *allncs;//网卡列表
+	pcap_if_t *nc;//网卡
+	int ncCount;//网卡计数
+	char errorBufffer[PCAP_ERRBUF_SIZE];//错误缓冲区
+
 	ncCount = 0;
 	if (pcap_findalldevs(&allncs, errorBufffer) == -1)
-		return -1;
-	for (nc = allncs; nc; nc = nc->next)//网卡数统计
+		return ;
+	for (nc = allncs; nc; nc = nc->next)
+	{
+		if (nc->description)
+			m_netcardComboBox.AddString(CString(nc->description));
 		ncCount++;
-	return 0;
+	}
 }
 
 //////////////////////2、数据包抓取//////////////////////
-int CtxysnifferDlg::txysniffer_startCap()
+DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 {
+	pcap_if_t *allncs;//网卡列表
+	pcap_if_t *nc;//网卡
+	pcap_t *dpHandle;//捕获
+	char errorBufffer[PCAP_ERRBUF_SIZE];//错误缓冲区
 
-	//(1)网卡和规则过滤的选择设置
+	CtxysnifferDlg *pthis = (CtxysnifferDlg*)lpParameter;
+
+	//(1)网卡的选择设置
 	int ncIndex;//网卡索引
-	int filterIndex;//协议过滤器索引
 
-	ncIndex = this->m_netcardComboBox.GetCurSel();
-	filterIndex = this->m_rulefilterComboBox.GetCurSel();
+	ncIndex = pthis->m_netcardComboBox.GetCurSel();
 	if (ncIndex == 0 || ncIndex == CB_ERR)
 	{
 		MessageBox(_T("请选择合适的网卡接口"));
-		return -1;
-	}
-	if (filterIndex == -1)
-	{
-		MessageBox(_T("过滤器选择错误"));
 		return -1;
 	}
 
@@ -278,31 +292,11 @@ int CtxysnifferDlg::txysniffer_startCap()
 	//(5)编译过滤器
 	struct bpf_program fcode;
 
-	if (filterIndex == 0)
+	if (pcap_compile(dpHandle, &fcode, filter, 1, netmask) < 0)
 	{
-		char filter[] = "";
-		if (pcap_compile(dpHandle, &fcode, filter, 1, netmask) < 0)
-		{
-			MessageBox(_T("无法编译过滤器"));
-			pcap_freealldevs(allncs);//释放设备列表
-			return -1;
-		}
-	}
-	else
-	{
-		CString str;
-		int len;
-		char *filter;
-		this->m_rulefilterComboBox.GetLBText(filterIndex, str);
-		len = str.GetLength() + 1;
-		for (int i = 0; i < len; i++)
-			filter[i] = str.GetAt(i);
-		if (pcap_compile(dpHandle, &fcode, filter, 1, netmask) < 0)
-		{
-			MessageBox(_T("无法编译过滤器"));
-			pcap_freealldevs(allncs);//释放设备列表
-			return -1;
-		}
+		MessageBox(_T("无法编译过滤器"));
+		pcap_freealldevs(allncs);//释放设备列表
+		return -1;
 	}
 
 	//(6)设置过滤器
@@ -313,18 +307,26 @@ int CtxysnifferDlg::txysniffer_startCap()
 		return -1;
 	}
 
-	//(7)接收数据，创建线程
-	LPDWORD threadCap = NULL;
-	m_ThreadHandle = CreateThread(NULL, 0, txysniffer_capThread, this, 0, threadCap);
-	if (m_ThreadHandle == NULL) {
-		CString str;
-		str.Format(_T("创建线程错误，代码为：%d."), GetLastError());
-		MessageBox(str);
-		return -1;
-	}
+	pcap_freealldevs(allncs);//释放设备列表	
+	pcap_loop(dpHandle, 0, packet_handler, NULL);
+	pcap_close(dpHandle);
+
 	return 1;
 }
 
+void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data)
+{
+
+	pcap_pkthdr *header2 = new pcap_pkthdr;
+	u_char *pkt_data2 = new u_char[header->len];
+
+	memcpy(header2,header,sizeof(pcap_pkthdr));
+	memcpy(pkt_data2,pkt_data,header->len);
+
+	//把消息放入队列
+	::PostMessage(hDlgHandle, M_MESSAGEWINPCAP, (WPARAM)header2, (LPARAM)pkt_data2);
+
+}
 
 //////////////////////更新数据包//////////////////////
 int CtxysnifferDlg::txysniffer_updatePacket()
@@ -334,7 +336,7 @@ int CtxysnifferDlg::txysniffer_updatePacket()
 	this->m_ARPedit.SetWindowText(strnum);
 
 	strnum.Format(_T("%d"), this->packetCount.num_ip4);
-	this->m_IPv4edit.SetWindowText(strnum);
+	this->m_IPedit.SetWindowText(strnum);
 
 	strnum.Format(_T("%d"), this->packetCount.num_ip6);
 	this->m_IPv6edit.SetWindowText(strnum);
@@ -346,7 +348,7 @@ int CtxysnifferDlg::txysniffer_updatePacket()
 	this->m_UDPedit.SetWindowText(strnum);
 
 	strnum.Format(_T("%d"), this->packetCount.num_icmp4);
-	this->m_ICMPv4edit.SetWindowText(strnum);
+	this->m_ICMPedit.SetWindowText(strnum);
 
 	strnum.Format(_T("%d"), this->packetCount.num_icmp6);
 	this->m_IPv6edit.SetWindowText(strnum);
@@ -895,7 +897,7 @@ void CtxysnifferDlg::OnBnClickedButton1()
 	this->m_edit.SetWindowText(_T(""));
 	this->m_startbutton.EnableWindow(FALSE);
 	this->m_stopbutton.EnableWindow(TRUE);
-	this->m_savebutton.EnableWindow(FALSE);
+	this->m_clearbutton.EnableWindow(FALSE);
 }
 
 
@@ -913,7 +915,7 @@ void CtxysnifferDlg::OnBnClickedButton2()
 	this->m_ThreadHandle = NULL;
 	this->m_startbutton.EnableWindow(TRUE);
 	this->m_stopbutton.EnableWindow(FALSE);
-	this->m_savebutton.EnableWindow(TRUE);
+	this->m_clearbutton.EnableWindow(TRUE);
 }
 
 

@@ -15,14 +15,8 @@ class CtxysnifferDlg : public CDialogEx
 public:
 	CtxysnifferDlg(CWnd* pParent = NULL);	// 标准构造函数
 
-	int txysniffer_initCap();//初始化Winpcap
-	int txysniffer_startCap();//开始捕获
+	void txysniffer_initCap();//初始化Winpcap
 
-	int ncCount;//网卡计数
-	char errorBufffer[PCAP_ERRBUF_SIZE];//错误缓冲区
-	pcap_if_t *allncs;//网卡列表
-	pcap_if_t *nc;//网卡
-	pcap_t *dpHandle;//捕获
 	char filePath[1024];//文件路径
 	char fileName[1024];//文件名称
 	pcap_dumper_t *dumpFile;//存储网络数据的文件描述符
@@ -65,17 +59,17 @@ protected:
 public:
 	CButton m_startbutton;
 	CButton m_stopbutton;
-	CButton m_savebutton;
-	CButton m_readbutton;
+	CButton m_clearbutton;
+	CButton m_exitbutton;
 	CComboBox m_netcardComboBox;
 	CComboBox m_rulefilterComboBox;
 	CEdit m_TCPedit;
 	CEdit m_UDPedit;
 	CEdit m_HTTPedit;
 	CEdit m_ARPedit;
-	CEdit m_IPv4edit;
+	CEdit m_IPedit;
 	CEdit m_IPv6edit;
-	CEdit m_ICMPv4edit;
+	CEdit m_ICMPedit;
 	CEdit m_ICMPv6edit;
 	CEdit m_elseedit;
 	CEdit m_totaledit;
@@ -88,4 +82,12 @@ public:
 	afx_msg void OnBnClickedButton4();
 	afx_msg void OnLvnItemchangedList1(NMHDR *pNMHDR, LRESULT *pResult);
 	afx_msg void OnNMCustomdrawList1(NMHDR *pNMHDR, LRESULT *pResult);
+	CButton m_ALLcheck;
+	CButton m_ARPcheck;
+	CButton m_IPcheck;
+	CButton m_TCPcheck;
+	CButton m_UDPcheck;
+	CButton m_ICMPcheck;
+	CButton m_HTTPcheck;
+	CButton m_FTPcheck;
 };
