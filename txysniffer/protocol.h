@@ -5,29 +5,37 @@
 #include "pcap.h"
 
 #define PROTO_ARP 0x0806//ARP协议类型
-#define PROTO_IP_V4 0x0800//IPv4协议类型
-#define PROTO_IP_V6 0x86dd//IPv6协议类型
-
-#define V4_PROTO_TCP 6//IPv4头结构下的TCP协议类型
-#define V4_PROTO_UDP 17//IPv4头结构下的UDP协议类型
-#define V4_PROTO_ICMP_V4 1//IPv4头结构下的ICMPv4协议类型
-
-#define V6_PROTO_TCP 0x06//IPv6头结构下的TCP协议类型
-#define V6_PROTO_UDP 0x11//IPv6头结构下的UDP协议类型
-#define V6_PROTO_ICMP_V6 0x3a//IPv6头结构下的ICMPv6协议类型
+#define PROTO_IP 0x0800//IP协议类型
+#define PROTO_RARP 0x8035//RARP协议类型
+#define PROTO_PPP 0x880B//PPP协议类型
+#define PROTO_SNMP 0x814C//SNMP协议类型
+#define PROTO_TCP 6//TCP协议类型
+#define PROTO_UDP 17//UDP协议类型
+#define PROTO_ICMP 1//ICMP协议类型
 
 #define LITTLE_ENDIAN 1234
 #define BIG_ENDIAN 4321
 
-//MAC头
-struct eth_header {
+typedef struct packet {
+	const struct pcap_pkthdr *header;
+	const u_char *pkt_data;
+}packet;
+
+typedef struct packet_index {
+	int no;
+	ULONGLONG pos;
+	int len;
+}packet_index;
+
+//MAC头,14
+typedef struct eth_header {
 	u_char dest[6];//目的地址，6个字节
 	u_char src[6];//源地址，6个字节
 	u_short type;//类型，2个字节
-};
+} eth_header;
 
 //ARP头
-struct arp_header {
+typedef struct arp_header {
 	u_short hard;//硬件类型，2个字节
 	u_short pro;//协议类型，2个字节
 	u_char hard_len;//硬件地址长度，1个字节
@@ -37,10 +45,18 @@ struct arp_header {
 	u_char src_ip[4];//发送方IP，4个字节
 	u_char dest_mac[6];//接收方MAC，6个字节
 	u_char dest_ip[4];//接收方IP，4个字节
-};
+} arp_header;
 
-//IPv4头
-struct ipv4_header {
+//IP地址
+typedef struct ip_address {
+	u_char byte1;//IP地址第1个字段
+	u_char byte2;//IP地址第2个字段
+	u_char byte3;//IP地址第3个字段
+	u_char byte4;//IP地址第4个字段
+} ip_address;
+
+//IP头,20
+typedef struct ip_header {
 #if defined(LITTLE_ENDIAN)//小端模式
 	u_char ihl : 4;//报头长度
 	u_char version : 4;//版本号
@@ -58,22 +74,10 @@ struct ipv4_header {
 	u_int src_addr;//源地址，4个字节
 	u_int dest_addr;//目的地址，4个字节
 	u_int opt;//选项等，4个字节
-};
+} ip_header;
 
-//IPv6头
-struct ipv6_header {
-	u_int version : 4,//版本
-		flowtype : 8,//流类型，8位
-		flowid : 20;//流标签，20位
-	u_short plen;//协议长度，2个字节
-	u_char next_head;//下一个头部，1个字节
-	u_char hop_limit;//跳限制，1个字节
-	u_short src_addr[8];//源地址，2个字节
-	u_short dest_addr[8];//目的地址，2个字节
-};
-
-//TCP头
-struct tcp_header {
+//TCP头,20
+typedef struct tcp_header {
 	u_short src_port;//源端口地址，2个字节
 	u_short dest_port;//目的端口地址，2个字节
 	u_int seq;//序列号，4个字节
@@ -105,49 +109,61 @@ struct tcp_header {
 	u_short check;//校验和，2个字节
 	u_short urg_ptr;//紧急指针，2个字节
 	u_int opt;//选项，4个字节
-};
+} tcp_header;
 
-//UDP头
-struct udp_header {
+//UDP头,8
+typedef struct udp_header {
 	u_short sport;//源端口，2个字节
 	u_short dport;//目的端口，2个字节
 	u_short len;//数据报长度，2个字节
 	u_short check;//校验和，2个字节
-};
+} udp_header;
 
-//ICMPv4头
-struct icmpv4_header {
+//ICMP头,4
+struct icmp_header {
 	u_char type;//类型，1个字节
 	u_char code;//代码，1个字节
 	u_char seq;//序列号，1个字节
 	u_char check;//校验和，1个字节
 };
 
-//ICMPv6头
-struct icmpv6_header {
-	u_char type;//类型，1个字节
-	u_char code;//代码，1个字节
-	u_char seq;//序列号，1个字节
-	u_char check;//校验和，1个字节
-	u_char op_type;//选项：类型，1个字节
-	u_char op_len;//选项：长度，1个字节
-	u_char op_eth_addr[6];//选项：链路层地址，1个字节
-};
+typedef struct http_packet {
+	CString request_method;  // 代表请求的方法，如GET、POST、HEAD、OPTIONS、PUT、DELETE和TARCE
+	CString request_uri;     // 代表请求的URI，如/sample.jsp
+	CString request_Protocol_version;// 代表请求的协议和协议的版本,如HTTP/1.1
 
-//计数
-typedef struct packet_count
-{
-	int num_arp;//ARP
-	int num_ip4;//IPv4
-	int num_ip6;//IPv6
-	int num_udp;//UDP
-	int num_tcp;//TCP
-	int num_icmp4;//ICMPv4
-	int num_icmp6;//ICMPv6
-	int num_http;//HTTP
-	int num_other;//其他
-	int num_total;//总计
-};
+	CString request_accept;  // 代表请求的Accept，如 */*
+	CString request_referer; // 代表请求的Referer，如 http://www.gucas.ac.cn/gucascn/index.aspx
+	CString request_accept_language;  // 代表请求的 Accept-language，如 zh-cn
+	CString request_accept_encoding;  // 代表请求的 Accept_encoding，如 gzip、deflate
+	CString request_modified_date;  // 代表请求的If-Modified-Since，如 Sun,27 Sep 2009 02:33:14 GMT
+	CString request_match;         // 代表请求的If-None-Match，如 "011d3dc1a3fcal:319"
+	CString request_user_agent;  // 代表请求的User-Agent，如 Mozilla/4.0(compatible:MSIE 6.0;Windows NT 5.1;SV1;.NET CLR 1.1.4322;.NEt...
+	CString request_host;      // 代表请求的Host，如 www.gucas.ac.cn
+	CString request_connection;// 代表请求的Connection，如 Keep-Alive
+	CString request_cookie;    // 代表请求的Cookie，如 ASP.NET_SessionId=hw15u245x23tqr45ef4jaiqc
+
+	CString request_entity_boy;// 代表请求的实体主体
+							   //===================================================================================
+	CString respond_Protocol_version; // 代表响应协议和协议的版本,如HTTP/1.1
+	CString respond_status;         // 代表响应状态代码，如200
+	CString respond_description;  // 代表响应状态代码的文本描述，如OK
+
+	CString respond_content_type; // 代表响应内容的类型，如text/html
+	CString respond_charset;      // 代表响应字符，如UTF-8
+	CString respond_content_length; // 代表响应内容的长度，如9
+	CString respond_connection; // 代表响应连接状态，如close
+	CString respond_Cache_Control; // 代表响应连接状态，如private
+	CString respond_X_Powered_By; // 代表响应连接状态，如ASP.NET
+	CString respond_X_AspNet_Version; // 代表响应连接状态，如1.1.4322
+	CString respond_Set_Cookie; // 代表响应连接状态，如ASP.NET_SessionId=w0qojdwi0welb4550lafq55;path=/
+
+	CString respond_date;       // 代表响应日期，如fri,23 Oct 2009 11:15:31 GMT
+	CString respond_Etag;       // 代表无修改，如"Ocld8a8cc91:319"
+	CString respond_server;     // 代表响应服务，如lighttpd
+
+	CString respond_entity_boy; // 代表响应实体主体，如IMOld(8);
+}http_packet;
 
 //保存用数据结构
 struct data_packet {

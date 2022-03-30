@@ -36,9 +36,6 @@
     <ClInclude Include="protocol.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="analysis.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="txysniffer.cpp">
@@ -48,9 +45,6 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="analysis.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

@@ -62,7 +62,6 @@ public:
 	CButton m_clearbutton;
 	CButton m_exitbutton;
 	CComboBox m_netcardComboBox;
-	CComboBox m_rulefilterComboBox;
 	CEdit m_TCPedit;
 	CEdit m_UDPedit;
 	CEdit m_HTTPedit;
@@ -90,4 +89,20 @@ public:
 	CButton m_ICMPcheck;
 	CButton m_HTTPcheck;
 	CButton m_FTPcheck;
+
+	int get_MacType(CString &eth_strType, u_short eth_Type, bool isFirst);//获取Ethernet类型
+	int get_MacAddress(TCHAR * eth_dMac, u_char eth_sMac[]);//获取Mac地址
+	int get_IPType(CString &ip_strIP, u_short ip_Type, bool isFirst);//获取IP类型
+	int get_IPAddress(TCHAR * ip_Address, ip_address *ip_addr);//获取IP地址
+
+private:
+	int num_arp;//ARP
+	int num_ip;//IP
+	int num_udp;//UDP
+	int num_tcp;//TCP
+	int num_icmp;//ICMP
+	int num_http;//HTTP
+	int num_ftp;//ftp
+	int num_smtp;//SMTP
+	int num_total;//总计
 };

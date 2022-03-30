@@ -219,7 +219,7 @@ HCURSOR CtxysnifferDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-//////////////////////1、初始化winpcap//////////////////////
+//////////////////////1.1初始化winpcap//////////////////////
 void CtxysnifferDlg::txysniffer_initCap()
 {
 	pcap_if_t *allncs;//网卡列表
@@ -238,7 +238,7 @@ void CtxysnifferDlg::txysniffer_initCap()
 	}
 }
 
-//////////////////////2、数据包抓取//////////////////////
+//////////////////////1.2数据包抓取//////////////////////
 DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 {
 	pcap_if_t *allncs;//网卡列表
@@ -326,6 +326,98 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 	//把消息放入队列
 	::PostMessage(hDlgHandle, M_MESSAGEWINPCAP, (WPARAM)header2, (LPARAM)pkt_data2);
 
+}
+
+//////////////////////2协议分析//////////////////////
+//获取Ethernet类型
+int CtxysnifferDlg::get_MacType(CString &eth_strType, u_short eth_Type, bool isFirst)
+{
+	if (isFirst)
+		num_total++;
+
+	switch (eth_Type)
+	{
+	case PROTO_ARP://ARP包
+		eth_strType = TEXT("ARP");
+		if (isFirst)
+			num_arp++;
+		break;
+	case PROTO_IP://IP包
+		eth_strType = TEXT("IP");
+		if (isFirst)
+			num_ip++;
+		break;
+	case PROTO_RARP:
+		eth_strType = TEXT("RARP");
+		break;
+	case PROTO_PPP:
+		eth_strType = TEXT("PPP");
+		break;
+	case PROTO_SNMP:
+		eth_strType = TEXT("SNMP");
+		break;
+	default://其他包
+		eth_strType = TEXT("other");
+		break;
+	}
+	return 1;
+}
+
+//获取Mac地址
+int CtxysnifferDlg::get_MacAddress(TCHAR * eth_dMac, u_char eth_sMac[])
+{
+	swprintf_s(
+		eth_dMac,
+		18,
+		TEXT("%02X-%02X-%02X-%02X-%02X-%02X"),
+		eth_sMac[0],
+		eth_sMac[1],
+		eth_sMac[2],
+		eth_sMac[3],
+		eth_sMac[4],
+		eth_sMac[5]);
+	return 1;
+}
+
+//获取IP类型
+int CtxysnifferDlg::get_IPType(CString &ip_strIP, u_short ip_Type, bool isFirst)
+{
+	switch (ip_Type)
+	{
+	case PROTO_TCP:
+		ip_strIP = TEXT("TCP");
+		if (isFirst)
+			num_tcp++;
+		break;
+	case PROTO_UDP:
+		ip_strIP = TEXT("UDP");
+		if (isFirst)
+			num_udp++;
+		break;
+	case PROTO_ICMP:
+		ip_strIP = TEXT("ICMP");
+		if (isFirst)
+			num_icmp++;
+		break;
+	default:
+		ip_strIP = TEXT("other");
+		break;
+	}
+	return 1;
+}
+
+//获取IP地址
+int CtxysnifferDlg::get_IPAddress(TCHAR * ip_Address, ip_address *ip_addr)
+{
+	swprintf_s(
+		ip_Address,
+		16,
+		TEXT("%d.%d.%d.%d"),
+		ip_addr->byte1,
+		ip_addr->byte2,
+		ip_addr->byte3,
+		ip_addr->byte4);
+	return 1;
 }
 
 //////////////////////更新数据包//////////////////////
@@ -465,44 +557,6 @@ int CtxysnifferDlg::txysniffer_updateList(struct pcap_pkthdr *data_header, struc
 	return 1;
 }
 
-//////////////////////接收线程函数//////////////////////
-DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
-{
-	int flag;
-	struct pcap_pkthdr *data_header;//数据包头
-	const u_char *pkt_data = NULL;//收到的字节流数据
-
-	CtxysnifferDlg *pthis = (CtxysnifferDlg*)lpParameter;
-	if (pthis->m_ThreadHandle == NULL) 
-	{
-		MessageBox(NULL, _T("线程句柄错误"),_T( "提示"), MB_OK);
-		return -1;
-	}
-	while ((flag = pcap_next_ex(pthis->dpHandle, &data_header, &pkt_data)) >= 0)//数据包捕获
-	{
-		if (flag == 0)//超时
-			continue;
-		struct data_packet *data = (struct data_packet*)malloc(sizeof(struct data_packet));
-		memset(data, 0, sizeof(struct data_packet));
-		if (data == NULL)
-		{
-			MessageBox(NULL, _T("空间已满，无法接收新的数据包"), _T("Error"), MB_OK);
-			return -1;
-		}
-
-		//分析出错或所接收数据包不在处理范围内
-		if (analyse_data_frame(pkt_data, data, &(pthis->packetCount)) < 0)
-			continue;
-
-		//将数据包保存到打开的文件中
-		if (pthis->dumpFile != NULL)
-			pcap_dump((unsigned char*)pthis->dumpFile, data_header, pkt_data);
-
-		pthis->txysniffer_updatePacket();
-		pthis->txysniffer_updateList(data_header, data, pkt_data);
-	}
-	return 1;
-}
 
 //数据格式化显示
 void CtxysnifferDlg::print_packet_hex(const u_char* packet, int packet_size, CString *buffer)
