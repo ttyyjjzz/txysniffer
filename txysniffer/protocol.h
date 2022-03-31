@@ -2,7 +2,8 @@
 #define PROTOCOL_H
 
 #pragma once
-#include "pcap.h"
+#include <pcap.h>
+#include <remote-ext.h>
 
 #define PROTO_ARP 0x0806//ARP协议类型
 #define PROTO_IP 0x0800//IP协议类型
@@ -164,20 +165,5 @@ typedef struct http_packet {
 
 	CString respond_entity_boy; // 代表响应实体主体，如IMOld(8);
 }http_packet;
-
-//保存用数据结构
-struct data_packet {
-	char type[8];//包类型
-	int time[6];//时间
-	int len;//长度
-
-	struct eth_header *ethh;//MAC头
-	struct arp_header *arph;//ARP头
-	struct ipv4_header *iph;//IP头
-	struct tcp_header *tcph;//TCP头
-	struct udp_header *udph;//UDP头
-	struct icmpv4_header *icmph;//ICMP头
-	void *apph;//应用层包头
-};
 
 #endif

@@ -6,9 +6,9 @@
 #include "txysniffer.h"
 #include "txysnifferDlg.h"
 #include "afxdialogex.h"
-#include "pcap.h"
-#include "protocol.h"
 #include <atlconv.h>
+
+
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -18,11 +18,8 @@
 char *filter;
 static HWND hDlgHandle;
 DWORD dwThread;
-DWORD WINAPI txysniffer_capThread(LPVOID lpParameter);
+DWORD WINAPI txysniffer_capThread(LPVOID);
 void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data);
-CFile *m_pfileData;  // 保存数据包的文件
-CFile *m_pfileIndex; // 数据包索引文件
-int m_iCurNo;       // 当前序号位置
 
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 class CAboutDlg : public CDialogEx
@@ -62,6 +59,7 @@ END_MESSAGE_MAP()
 
 CtxysnifferDlg::CtxysnifferDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(IDD_TXYSNIFFER_DIALOG, pParent),
+	m_ThreadHandle(NULL),
 	num_arp(0),
 	num_ip(0),
 	num_udp(0),
@@ -80,7 +78,7 @@ void CtxysnifferDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_BUTTON1, m_startbutton);
 	DDX_Control(pDX, IDC_BUTTON2, m_stopbutton);
-	DDX_Control(pDX, IDC_BUTTON3, m_clearbutton);
+	DDX_Control(pDX, IDC_BUTTON3, m_refreshbutton);
 	DDX_Control(pDX, IDC_BUTTON4, m_exitbutton);
 	DDX_Control(pDX, IDC_COMBO1, m_netcardComboBox);
 	DDX_Control(pDX, IDC_EDIT1, m_TCPedit);
@@ -113,8 +111,7 @@ BEGIN_MESSAGE_MAP(CtxysnifferDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON2, &CtxysnifferDlg::OnBnClickedButton2)
 	ON_BN_CLICKED(IDC_BUTTON3, &CtxysnifferDlg::OnBnClickedButton3)
 	ON_BN_CLICKED(IDC_BUTTON4, &CtxysnifferDlg::OnBnClickedButton4)
-	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST1, &CtxysnifferDlg::OnLvnItemchangedList1)
-	ON_NOTIFY(NM_CUSTOMDRAW, IDC_LIST1, &CtxysnifferDlg::OnNMCustomdrawList1)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST1, &CtxysnifferDlg::OnNMDblclkList1)
 END_MESSAGE_MAP()
 
 
@@ -149,38 +146,38 @@ BOOL CtxysnifferDlg::OnInitDialog()
 	//  执行此操作
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
+	ShowWindow(SW_SHOW);
 
 	// TODO: 在此添加额外的初始化代码
     
 	//数据包列表表项
-	m_list.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+	m_list.SetExtendedStyle(m_list.GetExtendedStyle() | LVS_EX_HEADERDRAGDROP |
+		LVS_EX_FULLROWSELECT | LVS_EX_BORDERSELECT | LVS_EX_GRIDLINES);
 	m_list.InsertColumn(0, _T("编号"), 2, 50);//2居中
 	m_list.InsertColumn(1, _T("时间"), 2, 200);
 	m_list.InsertColumn(2, _T("长度"), 2, 100);
 	m_list.InsertColumn(3, _T("Ethernet 类型"), 2, 120);
-	m_list.InsertColumn(3, _T("源MAC地址"), 2, 200);
-	m_list.InsertColumn(4, _T("目的MAC地址"), 2, 200);
-	m_list.InsertColumn(5, _T("协议"), 2, 100);
-	m_list.InsertColumn(6, _T("源IP地址"), 2, 150);
-	m_list.InsertColumn(7, _T("目的IP地址"), 2, 150);
+	m_list.InsertColumn(4, _T("源MAC地址"), 2, 200);
+	m_list.InsertColumn(5, _T("目的MAC地址"), 2, 200);
+	m_list.InsertColumn(6, _T("协议"), 2, 100);
+	m_list.InsertColumn(7, _T("源IP地址"), 2, 150);
+	m_list.InsertColumn(8, _T("目的IP地址"), 2, 150);
 
 	//下拉框
-	m_netcardComboBox.AddString(_T("请选择网卡(必选)"));
-	txysniffer_initCap();//获取所有网卡显示到下拉框中
-	m_netcardComboBox.SetCurSel(0);//默认显示
+	txysniffer_initCap();
 
 	//协议选择CheckBox
-	m_ALLcheck.GetCheck() == BST_CHECKED;
-	m_ARPcheck.GetCheck() == BST_UNCHECKED;
-	m_IPcheck.GetCheck() == BST_UNCHECKED;
-	m_TCPcheck.GetCheck() == BST_UNCHECKED;
-	m_UDPcheck.GetCheck() == BST_UNCHECKED;
-	m_ICMPcheck.GetCheck() == BST_UNCHECKED;
-	m_HTTPcheck.GetCheck() == BST_UNCHECKED;
-	m_FTPcheck.GetCheck() == BST_UNCHECKED;
+	m_ALLcheck.SetCheck(TRUE);
+	m_ARPcheck.SetCheck(FALSE);
+	m_IPcheck.SetCheck(FALSE);
+	m_TCPcheck.SetCheck(FALSE);
+	m_UDPcheck.SetCheck(FALSE);
+	m_ICMPcheck.SetCheck(FALSE);
+	m_HTTPcheck.SetCheck(FALSE);
+	m_FTPcheck.SetCheck(FALSE);
 
 	hDlgHandle = this->GetSafeHwnd();
-	txysniffer_initCap();
+
 	return TRUE;// 除非将焦点设置到控件，否则返回 TRUE
 }
 
@@ -233,49 +230,25 @@ HCURSOR CtxysnifferDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-//////////////////////1.1初始化winpcap//////////////////////
+
+//////////////////////1WinPcap//////////////////////
+//列出所有网卡
 void CtxysnifferDlg::txysniffer_initCap()
 {
-	pcap_if_t *allncs;//网卡列表
-	pcap_if_t *nc;//网卡
-	int ncCount;//网卡计数
-	char errorBufffer[PCAP_ERRBUF_SIZE];//错误缓冲区
-	ncCount = 0;
-	if (pcap_findalldevs(&allncs, errorBufffer) == -1)
-		return ;
-	for (nc = allncs; nc; nc = nc->next)
+	pcap_if_t *allncs = tmpMyPcap.get_ncList();//网卡列表
+
+	while (allncs != NULL)
 	{
-		if (nc->description)
-			m_netcardComboBox.AddString(CString(nc->description));
-		ncCount++;
+		m_netcardComboBox.AddString(CString(allncs->description));
+		allncs = allncs->next;
 	}
 	delete allncs;
 }
 
-pcap_if_t* CtxysnifferDlg::get_ncList()
-{
-	char errorBufffer[PCAP_ERRBUF_SIZE];
-	pcap_if_t* m_allncs = new pcap_if_t();
-	if (pcap_findalldevs_ex(PCAP_SRC_IF_STRING, NULL, &m_allncs, errorBufffer) == -1)
-	{
-		CString errmsg;
-		USES_CONVERSION;
-		errmsg.Format(_T("列出网卡错误: %s\n"), A2W(errorBufffer));
-		MessageBox(errmsg);
-		return NULL;
-	}
-	else if (m_allncs == NULL)
-	{
-		MessageBox(_T("列出网卡错误"));
-		return NULL;
-	}
-	else
-		return m_allncs;
-}
-
+//选中网卡
 pcap_if_t* CtxysnifferDlg::get_nc(int incNo, int iTotalncs)
 {
-	pcap_if_t* allncs = get_ncList();
+	pcap_if_t* allncs = tmpMyPcap.get_ncList();
 	pcap_if_t* pSeletednc = new pcap_if_t;
 	pSeletednc = NULL;
 	int i;
@@ -289,7 +262,7 @@ pcap_if_t* CtxysnifferDlg::get_nc(int incNo, int iTotalncs)
 	}
 }
 
-//////////////////////1.2数据包抓取//////////////////////
+//数据包抓取
 DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 {
 	pcap_if_t* pSelectednc = (pcap_if_t*)lpParameter;
@@ -304,7 +277,7 @@ DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 	dpHandle = pcap_open_live(pSelectednc->name, dataPackageLen, mode, overtime, errorBufffer);//打开指定网卡接口
 	if (dpHandle == NULL)
 	{
-		MessageBox(_T("网卡接口无法打开") + CString(pSelectednc->name));
+		AfxMessageBox(_T("网卡接口无法打开") + CString(pSelectednc->description));
 		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
@@ -312,7 +285,7 @@ DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 	//检查是否是以太网
 	if (pcap_datalink(dpHandle) != DLT_EN10MB)
 	{
-		MessageBox(_T("非以太网！"));
+		AfxMessageBox(_T("非以太网！"));
 		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
@@ -329,15 +302,15 @@ DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 
 	if (pcap_compile(dpHandle, &fcode, filter, 1, netmask) < 0)
 	{
-		MessageBox(_T("无法编译过滤器"));
-		pcap_freealldevs(pSelectednc);//释放设备列表
+		AfxMessageBox(_T("无法编译过滤器"));
+		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
 
 	//设置过滤器
 	if (pcap_setfilter(dpHandle, &fcode) < 0)
 	{
-		MessageBox(_T("过滤器设置错误"));
+		AfxMessageBox(_T("过滤器设置错误"));
 		pcap_freealldevs(pSelectednc);//释放设备
 		return -1;
 	}
@@ -371,21 +344,7 @@ LRESULT CtxysnifferDlg::Message_Pcap(WPARAM wParam, LPARAM lParam)
 	packet *pkt = new packet;
 	pkt->header = header;
 	pkt->pkt_data = pkt_data;
-	++m_iCurNo;
-	packet_index index;
-	index.no = m_iCurNo;
-	index.pos = m_pfileData->GetPosition();
-	index.len = sizeof(pcap_pkthdr) + header->len;
-
-	m_pfileIndex->SeekToEnd();
-	m_pfileIndex->Write(&index, sizeof(packet_index));
-
-	m_pfileData->SeekToEnd();
-	m_pfileData->Write(header, sizeof(pcap_pkthdr));
-	m_pfileData->Write(pkt_data, header->len);
-
-	m_pfileIndex->Flush();
-	m_pfileData->Flush();
+	tmpMyPcap.AppendPacket(pkt);
 
 	txysniffer_updateList(pkt);
 	txysniffer_updatePacket();
@@ -402,8 +361,9 @@ LRESULT CtxysnifferDlg::Message_Pcap(WPARAM wParam, LPARAM lParam)
 	}
 }
 
+
 //////////////////////2协议分析//////////////////////
-//获取Ethernet类型
+//获取Ethernet Type类型
 int CtxysnifferDlg::get_MacType(CString &eth_strType, u_short eth_Type, bool isFirst)
 {
 	if (isFirst)
@@ -494,11 +454,12 @@ int CtxysnifferDlg::get_IPAddress(TCHAR * ip_Address, ip_address *ip_addr)
 	return 1;
 }
 
+
 //////////////////////3交互//////////////////////
 //更新数据包统计
 int CtxysnifferDlg::txysniffer_updatePacket()
 {
-	CString strnum;
+	CString strnum = NULL;
 	strnum.Format(_T("%d"), num_arp);
 	this->m_ARPedit.SetWindowText(strnum);
 
@@ -553,7 +514,6 @@ int CtxysnifferDlg::txysniffer_updateList(packet *tmp_pkt)
 	local_tv_sec = header->ts.tv_sec;
 	localtime_s(plTime, &local_tv_sec);
 	strftime(strTime, sizeof strTime, "%H:%M:%S", plTime);
-
 	//MAC
 	eth_header *eth_hdr = (eth_header *)pkt_data;
 	TCHAR eth_srcMac[18];
@@ -562,7 +522,6 @@ int CtxysnifferDlg::txysniffer_updateList(packet *tmp_pkt)
 	get_MacAddress(eth_srcMac, eth_hdr->src);
 	get_MacAddress(eth_dstMac, eth_hdr->dest);
 	get_MacType(eth_strType, ntohs(eth_hdr->type), true);
-
 	//IP
 	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
 	TCHAR ip_srcAddr[16];
@@ -601,7 +560,9 @@ int CtxysnifferDlg::txysniffer_updateList(packet *tmp_pkt)
 	}
 	return 1;
 }
+
 //*******************************************
+//过滤器选择设置
 int CtxysnifferDlg::txysniffer_filterList()
 {
 	if (m_ALLcheck.GetCheck() == BST_CHECKED)//all
@@ -717,6 +678,7 @@ int CtxysnifferDlg::txysniffer_updateTree_mac(HTREEITEM & hItem, const u_char * 
 	return 1;
 }
 
+//更新树形框.ip
 int CtxysnifferDlg::txysniffer_updateTree_ip(HTREEITEM & hItem, const u_char * pkt_data)
 {
 	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
@@ -755,6 +717,7 @@ int CtxysnifferDlg::txysniffer_updateTree_ip(HTREEITEM & hItem, const u_char * p
 	return 1;
 }
 
+//更新树形框.tcp
 int CtxysnifferDlg::txysniffer_updateTree_tcp(HTREEITEM & hItem, const u_char * pkt_data)
 {
 	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
@@ -799,6 +762,7 @@ int CtxysnifferDlg::txysniffer_updateTree_tcp(HTREEITEM & hItem, const u_char * 
 	return 1;
 }
 
+//更新树形框.udp
 int CtxysnifferDlg::txysniffer_updateTree_udp(HTREEITEM & hItem, const u_char * pkt_data)
 {
 	//UDP头
@@ -821,6 +785,7 @@ int CtxysnifferDlg::txysniffer_updateTree_udp(HTREEITEM & hItem, const u_char * 
 	return 1;
 }
 
+//更新树形框.icmp
 int CtxysnifferDlg::txysniffer_updateTree_icmp(HTREEITEM & hItem, const u_char * pkt_data)
 {
 	//ICMP头
@@ -842,6 +807,7 @@ int CtxysnifferDlg::txysniffer_updateTree_icmp(HTREEITEM & hItem, const u_char *
 	return 1;
 }
 
+//更新树形框.http
 int CtxysnifferDlg::txysniffer_updateTree_http(HTREEITEM & hItem, const u_char * pkt_data)
 {
 	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
@@ -850,8 +816,8 @@ int CtxysnifferDlg::txysniffer_updateTree_http(HTREEITEM & hItem, const u_char *
 	u_short tcp_hdrLen = tcp_hdr->doff * 4;
 
 	u_char *http_pkt = (u_char *)(pkt_data + 14 + ip_hdrLen + tcp_hdrLen);
-	u_short http_pktLen = ntohs(ip_hdr->total_len) - (ip_hdrLen + tcp_hdrLen); //u_short httpLen2 = header->len - (14+ip_hdrLen+tcp_hdrLen);
-																			 //http_packet * http_pktHdr = new http_packet ;// HTTP packet's  struct
+	u_short http_pktLen = ntohs(ip_hdr->total_len) - (ip_hdrLen + tcp_hdrLen); 
+																			 
 	vector<CString> strVecRequestHttp;//定义请求头容器
 	vector<CString> strVecRespondHttp;//定义响应头容器
 	CString chrVecTmp = NULL;//声明存入容器的临时字符
@@ -877,9 +843,9 @@ int CtxysnifferDlg::txysniffer_updateTree_http(HTREEITEM & hItem, const u_char *
 
 		if (*pkt_data == 'H') // 如果第一个字符为H，即可能以HTTP开头的，则为响应头，否则应为请求头
 		{
-			for (int i = 0; i<httpAllLen; i++) // get http_Get data
+			for (int i = 0; i<httpAllLen; i++)
 			{
-				chrVecTmp.Format(_T("%c"), pchrHttpAllData[i]); // format
+				chrVecTmp.Format(_T("%c"), pchrHttpAllData[i]);
 				strHttpRespondData += chrVecTmp;//记录完整的HTTP响应头的数据
 
 				chrVecTmp.Format(_T("%c"), pchrHttpAllData[i]); //记录每一行的内容，并保存在临时字符串中
@@ -898,9 +864,9 @@ int CtxysnifferDlg::txysniffer_updateTree_http(HTREEITEM & hItem, const u_char *
 		}
 		else
 		{
-			for (int i = 0; i<httpAllLen; i++) // get http_Get data
+			for (int i = 0; i<httpAllLen; i++)
 			{
-				chrVecTmp.Format(_T("%c"), pchrHttpAllData[i]); // format
+				chrVecTmp.Format(_T("%c"), pchrHttpAllData[i]);
 				strHttpRequestData += chrVecTmp;//记录完整的HTTP响应头的数据
 
 				chrVecTmp.Format(_T("%c"), pchrHttpAllData[i]); //记录每一行的内容，并保存在临时字符串中
@@ -918,13 +884,15 @@ int CtxysnifferDlg::txysniffer_updateTree_http(HTREEITEM & hItem, const u_char *
 				m_tree.InsertItem(strVecRespondHttp[irespond], childhItem);
 		}
 	}
+	return 1;
 }
 
+//判断是否为HTTP协议
 bool CtxysnifferDlg::IsHTTP(const u_char *pkt_data)
 {
 	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
 	u_short ip_hdrLen = ip_hdr->ihl * 4;
-	tcp_header * tcp_hdr = (tcp_header *)(pkt_data + 14 + ip_hdrLen);
+	tcp_header *tcp_hdr = (tcp_header *)(pkt_data + 14 + ip_hdrLen);
 	u_short tcp_hdrLen = tcp_hdr->doff * 4;
 
 	u_char *http_pkt = (u_char *)(pkt_data + 14 + ip_hdrLen + tcp_hdrLen);
@@ -936,7 +904,7 @@ bool CtxysnifferDlg::IsHTTP(const u_char *pkt_data)
 
 	int httpPos = 0;
 
-	if (ip_hdr->proto == 6)
+	if (ip_hdr->proto == PROTO_TCP)
 	{
 		for (int i = 0; i<http_pktLen; i++) // 仅提取第一行是否含有HTTP字符串
 		{
@@ -958,11 +926,12 @@ bool CtxysnifferDlg::IsHTTP(const u_char *pkt_data)
 	return false;
 }
 
+//开始抓取
 void CtxysnifferDlg::OnBnClickedButton1()
 {
 	// TODO: 在此添加控件通知处理程序代码
 
-	txysniffer_updateList();//调用过滤器，默认是选中ALL全部协议
+	txysniffer_filterList();//调用过滤器，默认ALL
 
 	int incNo = m_netcardComboBox.GetCurSel();
 	int iTotalnc = m_netcardComboBox.GetCount();
@@ -978,40 +947,45 @@ void CtxysnifferDlg::OnBnClickedButton1()
 
 	m_startbutton.EnableWindow(FALSE);
 	m_stopbutton.EnableWindow(TRUE);
-	m_clearbutton.EnableWindow(FALSE);
+	m_refreshbutton.EnableWindow(FALSE);
 }
 
+//停止抓取
 void CtxysnifferDlg::OnBnClickedButton2()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	
-	if (this->m_ThreadHandle == NULL)
+	if (m_ThreadHandle == NULL)
 		return;
-	if (TerminateThread(this->m_ThreadHandle, -1) == 0) 
+	else if (TerminateThread(m_ThreadHandle, -1) == 0) 
 	{
 		MessageBox(_T("线程关闭错误，请稍后重试"));
 		return;
 	}
-	this->m_ThreadHandle = NULL;
-	this->m_startbutton.EnableWindow(TRUE);
-	this->m_stopbutton.EnableWindow(FALSE);
-	this->m_clearbutton.EnableWindow(TRUE);
+	m_ThreadHandle = NULL;
+
+	m_startbutton.EnableWindow(TRUE);
+	m_stopbutton.EnableWindow(FALSE);
+	m_refreshbutton.EnableWindow(TRUE);
 }
 
-
+//刷新
 void CtxysnifferDlg::OnBnClickedButton3()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	//清空数据
-	this->m_list.DeleteAllItems();
-	this->packetNum = 1;
-	this->m_localDataList.RemoveAll();
-	this->m_netDataList.RemoveAll();
-	memset(&(this->packetCount), 0, sizeof(struct packet_count));
-
+	while (m_netcardComboBox.DeleteString(0) > 0);
+	txysniffer_initCap();
+	/*num_arp = 0;
+	num_ip = 0;
+	num_udp = 0;
+	num_tcp = 0;
+	num_icmp = 0;
+	num_http = 0;
+	num_ftp = 0;
+	num_total = 0;*/
 }
 
-
+//退出
 void CtxysnifferDlg::OnBnClickedButton4()
 {
 	// TODO: 在此添加控件通知处理程序代码
@@ -1022,16 +996,55 @@ void CtxysnifferDlg::OnBnClickedButton4()
 	CDialogEx::OnOK();
 }
 
-void CtxysnifferDlg::OnLvnItemchangedList1(NMHDR *pNMHDR, LRESULT *pResult)
+//选中数据包信息
+void CtxysnifferDlg::OnNMDblclkList1(NMHDR *pNMHDR, LRESULT *pResult)
 {
-	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 	// TODO: 在此添加控件通知处理程序代码
-	POSITION pos = m_list.GetFirstSelectedItemPosition();
-	int index = m_list.GetNextSelectedItem(pos); //获取列表控件当前选择的行号
-	if (index != -1) 
+	
+	packet *pkt = tmpMyPcap.GetPacket(pNMItemActivate->iItem + 1);
+	const struct pcap_pkthdr *header = pkt->header;
+	const u_char *pkt_data = pkt->pkt_data;
+	
+	m_tree.DeleteAllItems();
+
+	CString str;
+	HTREEITEM hItem;
+
+	//No
+	str.Format(TEXT("NO = %d"), pNMItemActivate->iItem + 1);
+	hItem = m_tree.InsertItem(str);
+	//时间戳
+	struct tm  lTime = { 0,0,0,0,0,0,0,0,0 };
+	struct tm *plTime = &lTime;
+	char strTime[9];
+	time_t local_tv_sec;
+	local_tv_sec = header->ts.tv_sec;
+	localtime_s(plTime, &local_tv_sec);
+	strftime(strTime, sizeof strTime, "%H:%M:%S", plTime);
+	USES_CONVERSION;
+	str.Format(TEXT("TimeStamp = %s"), A2W(strTime));
+	m_tree.InsertItem(str, hItem);
+	//mac
+	txysniffer_updateTree_mac(hItem, pkt_data);
+	eth_header* eth_hdr = (eth_header*)pkt_data;
+	// 如果是IP数据包，则显示IP包的详细信息；
+	if (ntohs(eth_hdr->type) == PROTO_IP)
+		txysniffer_updateTree_ip(hItem, pkt_data);
+	ip_header *ip_hdr = (ip_header *)(pkt_data + 14);
+	if (ip_hdr->proto == PROTO_TCP)//TCP
 	{
-		this->txysniffer_updateEdit(index);//更新对应行的编辑框
-		this->txysniffer_updateTree(index);//更新对应行的树形框
+		txysniffer_updateTree_tcp(hItem, pkt_data);
+		if (IsHTTP(pkt_data))//HTTP
+			txysniffer_updateTree_http(hItem, pkt_data);
 	}
+	else if (ip_hdr->proto == PROTO_UDP)//UDP
+		txysniffer_updateTree_udp(hItem, pkt_data);
+	else if (ip_hdr->proto == PROTO_ICMP)//ICMP
+		txysniffer_updateTree_icmp(hItem, pkt_data);
+	
+	//数据信息
+	txysniffer_updateEdit(m_edit, pkt);
+
 	*pResult = 0;
 }

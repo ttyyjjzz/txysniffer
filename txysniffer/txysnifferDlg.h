@@ -5,7 +5,8 @@
 #pragma once
 #include "afxwin.h"
 #include "afxcmn.h"
-#include "pcap.h"
+
+#include "mypcap.h"
 
 
 // CtxysnifferDlg 对话框
@@ -15,16 +16,16 @@ class CtxysnifferDlg : public CDialogEx
 public:
 	CtxysnifferDlg(CWnd* pParent = NULL);	// 标准构造函数
 	
-	pcap_dumper_t *dumpFile;//存储网络数据的文件描述符
+	//pcap_dumper_t *dumpFile;//存储网络数据的文件描述符
 
 	HANDLE m_ThreadHandle;//接收数据线程
-	CPtrList m_localDataList;//保存本地化的数据包
-	CPtrList m_netDataList;//保存网络中获取的数据包
-	int packetNum;//包统计
+	MyPcap tmpMyPcap;//实例化自定义类对象
+	//CPtrList m_localDataList;//保存本地化的数据包
+	//CPtrList m_netDataList;//保存网络中获取的数据包
+	//int packetNum;//包统计
 
-	void txysniffer_initCap();//初始化Winpcap
-	pcap_if_t* get_ncList();
-	pcap_if_t* get_nc(int incNo, int iTotalncs);
+	void txysniffer_initCap();//列出所有网卡
+	pcap_if_t* get_nc(int incNo, int iTotalncs);//选中网卡
 	int get_MacType(CString &eth_strType, u_short eth_Type, bool isFirst);//获取Ethernet类型
 	int get_MacAddress(TCHAR * eth_dMac, u_char eth_sMac[]);//获取Mac地址
 	int get_IPType(CString &ip_strIP, u_short ip_Type, bool isFirst);//获取IP类型
@@ -65,7 +66,7 @@ protected:
 public:
 	CButton m_startbutton;
 	CButton m_stopbutton;
-	CButton m_clearbutton;
+	CButton m_refreshbutton;
 	CButton m_exitbutton;
 	CComboBox m_netcardComboBox;
 	CEdit m_TCPedit;
@@ -85,8 +86,7 @@ public:
 	afx_msg void OnBnClickedButton2();
 	afx_msg void OnBnClickedButton3();
 	afx_msg void OnBnClickedButton4();
-	afx_msg void OnLvnItemchangedList1(NMHDR *pNMHDR, LRESULT *pResult);
-	afx_msg void OnNMCustomdrawList1(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMDblclkList1(NMHDR *pNMHDR, LRESULT *pResult);
 	CButton m_ALLcheck;
 	CButton m_ARPcheck;
 	CButton m_IPcheck;
