@@ -262,6 +262,57 @@ pcap_if_t* CtxysnifferDlg::get_nc(int incNo, int iTotalncs)
 	}
 }
 
+//*******************************************
+//过滤器选择设置
+int CtxysnifferDlg::txysniffer_filterList()
+{
+	if (m_ALLcheck.GetCheck() == BST_CHECKED)//all
+	{
+		char * pstr = "";
+		filter = pstr;
+	}
+	else if (m_IPcheck.GetCheck() == BST_CHECKED && m_ARPcheck.GetCheck() == BST_UNCHECKED)//ip
+	{
+		char * pstr = "ip";
+		filter = pstr;
+	}
+	else if (m_ARPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//arp
+	{
+		char * pstr = "arp";
+		filter = pstr;
+	}
+	else if (m_ARPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_CHECKED)//ip and arp
+	{
+		char * pstr = "ip and arp";
+		filter = pstr;
+	}
+	else if (m_TCPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//only tcp 
+	{
+		char * pstr = "ip and tcp";
+		filter = pstr;
+	}
+	else if (m_UDPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//only udp
+	{
+		char * pstr = "ip and udp";
+		filter = pstr;
+	}
+	else if (m_ICMPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//noly icmp
+	{
+		char * pstr = "ip and icmp";
+		filter = pstr;
+	}
+	/*else if (m_HTTPcheck.GetCheck() == BST_CHECKED)
+	{
+	char * pstr = "http";
+	filter = pstr;
+	}*/
+
+	UpdateData(true);  // 把控件的值传给对应的变量
+	UpdateData(false); // 把变量的值传递给控件
+
+	return 1;
+}
+
 //数据包抓取
 DWORD WINAPI txysniffer_capThread(LPVOID lpParameter)
 {
@@ -561,56 +612,6 @@ int CtxysnifferDlg::txysniffer_updateList(packet *tmp_pkt)
 	return 1;
 }
 
-//*******************************************
-//过滤器选择设置
-int CtxysnifferDlg::txysniffer_filterList()
-{
-	if (m_ALLcheck.GetCheck() == BST_CHECKED)//all
-	{
-		char * pstr = "";
-		filter = pstr;
-	}
-	else if (m_IPcheck.GetCheck() == BST_CHECKED && m_ARPcheck.GetCheck() == BST_UNCHECKED)//ip
-	{
-		char * pstr = "ip";
-		filter = pstr;
-	}
-	else if (m_ARPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//arp
-	{
-		char * pstr = "arp";
-		filter = pstr;
-	}
-	else if (m_ARPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_CHECKED)//ip and arp
-	{
-		char * pstr = "ip and arp";
-		filter = pstr;
-	}
-	else if (m_TCPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//only tcp 
-	{
-		char * pstr = "ip and tcp";
-		filter = pstr;
-	}
-	else if (m_UDPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//only udp
-	{
-		char * pstr = "ip and udp";
-		filter = pstr;
-	}
-	else if (m_ICMPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//noly icmp
-	{
-		char * pstr = "ip and icmp";
-		filter = pstr;
-	}
-	/*else if (m_HTTPcheck.GetCheck() == BST_CHECKED)
-	{
-		char * pstr = "http";
-		filter = pstr;
-	}*/
-
-	UpdateData(true);  // 把控件的值传给对应的变量
-	UpdateData(false); // 把变量的值传递给控件
-	
-	return 1;
-}
 
 //更新编辑框
 int CtxysnifferDlg::txysniffer_updateEdit(CEdit & medit, packet *pkt)
