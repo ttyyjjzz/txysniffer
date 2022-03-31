@@ -570,12 +570,12 @@ int CtxysnifferDlg::txysniffer_filterList()
 		char * pstr = "";
 		filter = pstr;
 	}
-	else if (m_IPcheck.GetCheck() == BST_CHECKED)//ip
+	else if (m_IPcheck.GetCheck() == BST_CHECKED && m_ARPcheck.GetCheck() == BST_UNCHECKED)//ip
 	{
 		char * pstr = "ip";
 		filter = pstr;
 	}
-	else if (m_ARPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//only arp
+	else if (m_ARPcheck.GetCheck() == BST_CHECKED && m_IPcheck.GetCheck() == BST_UNCHECKED)//arp
 	{
 		char * pstr = "arp";
 		filter = pstr;
@@ -600,6 +600,11 @@ int CtxysnifferDlg::txysniffer_filterList()
 		char * pstr = "ip and icmp";
 		filter = pstr;
 	}
+	/*else if (m_HTTPcheck.GetCheck() == BST_CHECKED)
+	{
+		char * pstr = "http";
+		filter = pstr;
+	}*/
 
 	UpdateData(true);  // 把控件的值传给对应的变量
 	UpdateData(false); // 把变量的值传递给控件
